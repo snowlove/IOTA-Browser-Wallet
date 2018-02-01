@@ -172,7 +172,7 @@
 	
 	function login(seed, node, cb=null) {
 		if(connection.userRetrieving) {
-			print("Attempted to retrieve account information while already in process", 1); return;
+			print("Attempted to retrieve account information while already in process", 1); if (cb) { cb('Unable to retrieve while already processing', null); } return;
 		} else if(!validatefield(seed, 'seed')) {
 			print("invalid seed", 3); return;
 		} else if(!validatefield(node, 'node')) {
@@ -207,7 +207,7 @@
 			account_pop('addresses');
 
 			print("succesfully retrieved account information", 2);
-			if(cb) cb();
+			if(cb) cb(null, true);
 		});
 	}
 	
@@ -333,8 +333,15 @@
 		connection.provider = node;
 		if(typeof connection.accountData == "undefined") {
 			print("no account information found. retrieving automatically", 1);
-			login(seed, node, function() { genAddresses(connection.seed, connection.provider, connection.userGenCount); });
-			return;
+			login(seed, node, function(e, s) {
+				if(e) {
+					print(e, 3);
+				} else if(s) {
+					print("Sucessful callback starting regen.", 2);
+					genAddresses(connection.seed, connection.provider, connection.userGenCount);
+				}
+			});
+			return false;
 		}
 	
 		iota._makeRequest.provider = node;
