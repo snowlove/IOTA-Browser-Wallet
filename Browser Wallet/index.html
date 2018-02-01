@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>IOTA Browser Wallet :: By Snowlove</title>
+		
+		<script type="text/javascript" src="libs/iota.min.js"></script>
+		<script type="text/javascript" src="libs/curl.min.js"></script>
+		<script type="text/javascript" src="libs/iota.extensions.js"></script>
+		<script type="text/javascript" src="libs/jquery.min.js"></script>
+		<script type="text/javascript" src="libs/popper.min.js"></script>
+		<script type="text/javascript" src="libs/bootstrap.min.js"></script>
+		<script type="text/javascript" src="libs/knarz.seedgen.js"></script>
+<script>
+/*
+* code by     : snowlove
+* libs            : iota foundation :: iota.min.js && curl.min.js, knarz :: seedgen.js, GpanosXP :: iota.extensions.js
+* website      :  https://cindar.me
+* LICENSE    : Creative Commons [BY][SA][NC] : https://creativecommons.org/licenses/by-nc-sa/3.0/legalcode.txt
+*/
+	var iota, node, logElement, sjclSeedGen;
+	var connection = {
+		userRetrieving : false,
+		userGening : false,
+		userSending : false
+	};
+	//var accountData = {};
+
+	function timestamp() {
+		var date = new Date();
+		var hh = date.getHours() < 10 ? "0" + date.getHours() : date.getHours();
+		var mm = date.getMinutes() < 10 ? "0" + date.getMinutes() : date.getMinutes();
+		var ss = date.getSeconds() < 10 ? "0" + date.getSeconds() : date.getSeconds();
+		time = hh + ":" + mm + ":" + ss;
+		
+		delete date;
+		return time;
+	}
+	
+	function print(msg, type=null) {
+		var tmp;
+		var logline = document.createElement("div");
+		tmp = "[" + timestamp() + "]: ";
+		if(type == 1) { //warning
+			tmp += '<span class="badge badge-warning">Warning</span> ';
+		} else if(type == 2) { //success
+			tmp += '<span class="badge badge-success">Success</span> ';
+		} else if (type == 3) { //danger
+			tmp += '<span class="badge badge-danger">Error</span> ';
+		} else if (type == 4) { //info
+			tmp += '<span class="badge badge-info">Info</span> ';
+		} else if (type == 5) { //'primary' the orange one
+			tmp += '<span class="badge badge-primary">' + 'amsg' + '</span> ';
+		}
+		
+		tmp += msg;
+		
+		logline.innerHTML = tmp;
+		logElement.insertBefore(logline, logElement.firstChild);
+	}
+	
+	/* validatefield(value, sender) */
+	/* returns bool */
+	function validatefield(v, s) {
+		if(s == 'hash') {
+			if(!v || !iota.valid.isHash(v)) {
+				document.getElementById("promoteTxHash").classList.add('is-invalid'); document.getElementById("errorhash").innerHTML = '<span class="badge badge-danger">invalid hash</span>'; return false;
+			} else {
+				document.getElementById("promoteTxHash").classList.remove('is-invalid'); document.getElementById("errorhash").innerHTML = ''; return true;
+			}
+		}
+		
+		if(s == 'node') {
+			var gruber = /\b((?:https?:\/\/|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}\/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'".,<>?«»“”‘’]))/i;
+			if(!v || !gruber.exec(v)) {
+				document.getElementById("node").classList.add('is-invalid'); document.getElementById("errornode").innerHTML = '<span class="badge badge-danger">invalid node</span>'; return false;
+			} else {
+				document.getElementById("node").classList.remove('is-invalid'); document.getElementById("errornode").innerHTML = ''; return true;
+			}
+		}
+		
+		if(s == 'seed') {
+			if(!v) {
+				return false;
+			} else if (v.match(/[^A-Z9]/) || v.match(/^[9]+$/)) {
+				return false;
+			} else if (v.length != 81) {
+				return false;
+			} else {
+				return true;
+			}
+		}
+	}
+	
+	
+	/* Check for webgl support because it's required. */
+	function webgl_support() {
+		try{ var canvas = document.createElement( 'canvas' ); return !! window.WebGLRenderingContext && (canvas.getContext( 'webgl' ) || canvas.getContext( 'experimental-webgl' ) ); }catch( e ) { return false; }
+	}
+	
+	
+	function pageLoaded() {
+		if(!iota) iota = new IOTA();
+		iota.api.attachToTangle = iota.localAttachToTangle;
+		iota.api.__proto__.attachToTangle = iota.localAttachToTangle;
+		iota.api.interruptAttachingToTangle = iota.localInterruptAttachingToTangle;
+		iota.api.__proto__.interruptAttachingToTangle = iota.localInterruptAttachingToTangle;
+		logElement = document.getElementById("eventLogContent");
+		print("Testing for WebGL...");
+		if(webgl_support()) { print('<span class="badge badge-success">Success</span> WebGL Enabled READY, SET, GO!'); } else { print('<span class="badge badge-danger">Error</span> WebGL not enabled. [<a href="https://www.google.com/search?q=How+do+I+enable+WebGL&ie=utf-8">Click here</a>] for help enabling it.'); }	
+		print('<span class="badge badge-danger">WARNING: This is a test to make a fully functional online-wallet. NEVER enter your seed on a website. only if the URL looks like file://C:/directory/wallet.html you saved.</span>');
+	}
+
+	function account_pop(type) {
+		if(type == 'info') {
+			document.getElementById("accountBalance").innerHTML = connection.accountData.balance + "i";
+			document.getElementById("accountTransactions").innerHTML = connection.accountData.transfers.length;
+			document.getElementById("accountAddresses").innerHTML = connection.accountData.addresses.length;
+			document.getElementById("accountBalanceAddresses").innerHTML = connection.accountData.inputs.length;
+		} else if (type == 'history') {
+			if(connection.accountData.transfers.length > 0) { //come back and fix the damn gigantic table problem.
+				var ignoreReplays = {};
+				$("#tableHistory").find("tr:not(:first)").remove();
+				connection.accountData.transfers.forEach(function(v) {
+				var t = document.getElementById("tableHistory");
+				var r = t.insertRow(1);
+				
+				if(v.length > 1 && (v[0].bundle in ignoreReplays) == false) { /* it's a tx */
+					r.insertCell(0).innerHTML=v[0].hash;
+					r.insertCell(1).innerHTML=v[0].value;
+					r.insertCell(2).innerHTML="Transaction";
+					r.insertCell(3).innerHTML=v[0].address;
+					r.insertCell(4).innerHTML=v[1].address;
+					ignoreReplays[v[0].bundle] = true;
+				} else if(v.length == 1) {
+					r.insertCell(0).innerHTML=v[0].hash;
+					r.insertCell(1).innerHTML=v[0].value;
+					r.insertCell(2).innerHTML = "Attachment";
+					r.insertCell(3).innerHTML = "N/A";
+					r.insertCell(4).innerHTML = "N/A";
+				}
+				});
+			} else {
+				login(connection.seed, connection.provider, function() { account_pop('history'); });
+			}
+		} else if (type == 'addresses') {
+			$("#tableAddresses").find("tr:not(:first)").remove();
+			var addressesWithBalance = {};
+			var t = document.getElementById("tableAddresses");
+
+			connection.accountData.inputs.forEach(function(v) { addressesWithBalance[v.address] = v.balance; });
+			
+			iota.api.wereAddressesSpentFrom(connection.accountData.addresses, function(e, a) {
+				if(e) { print('[wereAddressesSpentFrom API] Could not find out if address was spent from', 3); }
+				
+				if(a) {
+					var c = 0;
+					
+					connection.accountData.addresses.forEach(function(v) {
+						var r = t.insertRow(1);
+						
+						r.insertCell(0).innerHTML=v;
+						if(v in addressesWithBalance) r.insertCell(1).innerHTML=addressesWithBalance[v]; else r.insertCell(1).innerHTML='0';
+						r.insertCell(2).innerHTML = a[c] == true ? '<span class="badge badge-danger">true</span>' : '<span class="badge badge-primary">false</span>';
+						
+						c++;
+					});
+				}
+			});
+		}
+	}
+	
+	function login(seed, node, cb=null) {
+		if(connection.userRetrieving) {
+			print("Attempted to retrieve account information while already in process", 1); return;
+		} else if(!validatefield(seed, 'seed')) {
+			print("invalid seed", 3); return;
+		} else if(!validatefield(node, 'node')) {
+			print("invalid node", 3); return;
+		}
+		print("Retrieving seed information from the tangle", 4);
+		
+		iota._makeRequest.provider = node;
+		connection.seed = seed;
+		connection.provider = node;
+		connection.userRetrieving = true;
+		
+		iota.api.getAccountData(seed, function(e, accountData) {
+			connection.userRetrieving = false;
+			if(e) {
+				if (e.message.match(/This operations cannot be executed: The subtangle has not been updated yet/i))
+					print("[Node] Not in sync, try a different node", 3);
+				else
+					print("[Node]: Connection Refused", 3);
+					
+				return;
+			}
+
+			connection.accountData = accountData;
+			/* populate history */
+			account_pop('history');
+			
+			/* populate accountdata */
+			account_pop('info');
+			
+			/* populate addresses with info */
+			account_pop('addresses');
+
+			print("succesfully retrieved account information", 2);
+			if(cb) cb();
+		});
+	}
+	
+	function sendIOT(seed, addressraw, valueraw, node) {
+		iota._makeRequest.provider = node;
+		
+		if(typeof connection.accountData == "undefined") {
+			print("no account information found. retrieving automatically", 1);
+			connection.seed = seed;
+			connection.userSendingTo = addressraw;
+			connection.userSendingValue = valueraw;
+			connection.provider = node;
+			login(seed, node, function() { sendIOT(connection.seed, connection.userSendingTo, connection.userSendingValue, connection.provider); });
+			return;
+		}
+		
+		var address, amount, tag;
+		address = addressraw;
+		
+		if (!address) {
+			print("address is required!", 3); return;
+		} else if (address.length == 81) {
+			print("missing address checksum", 3); return;
+		} else if (address.length != 90) {
+			print("incorrect address length", 3); return;
+		} else if (!address.match(/^[A-Z9]+$/)) {
+			print("Invalid address", 3); return;
+		} else if (!iota.utils.isValidChecksum(address)) {
+			print("incorrect address checksum", 3); return;
+		}
+
+		var rawAmount = valueraw
+		var rawUnits  = "i"
+
+		if (!rawAmount) {
+			print("Amount can not be zero.", 1); return;
+		} else {
+			if(rawAmount < 0) {
+				print("Amount can not be negative", 1); return;
+			}
+			amount = iota.utils.convertUnits(parseFloat(rawAmount), rawUnits, "i");
+
+			if (!amount) {
+				print("amount can not be zero", 1); return;
+			}
+		}
+		
+		getUnspentInputs(seed, 0, amount, function(error, inputs) {
+			if (error && error.message !== 'Not enough balance') {
+				print("Not enough balance", 1); return;
+			} else if (inputs.allBalance < amount) {
+				print("Not enough balance", 1); return;
+			} else if (inputs.totalBalance < amount) {
+				print("Key reuse detected.", 3); return;
+			}
+
+			var transfers = [{address: address, value: amount, message: "CCWCXCGDEAHDFDPCBDGDPCRCHDXCCDBDEAKDPCGDEAGDTCBDHDEAIDGDXCBDVCEAXCCDHDPCSA9DXCQCSAYCGDEAIDGDXCBDVCEAPCBDEACDBD9DXCBDTCEAKDPC9D9DTCHDEAKDTCQCGDXCHDTCEAUCCDFDEAHDTCGDHDXCBDVCEADDIDFDDDCDGDTCGDEACDBD9DMDEARAGDBDCDKD9DCDJDTCJ9J9GAJ9MDCDIDEAHDTC9D9DEAADTCEAXCHDLAGDEAPC9DFDXCVCWCHDQAJ9HDTC9D9DEAADTCEASBLAADEAUCCDFDVCXCJDTCBDEAHDCDBDXCVCWCHDQAJ9QCIDHDEABDCDQCCDSCMDEARCPCBDEAGDPCJDTCEAADTCEABDCDKDQAJ9SBLAADEAWCCD9DSCXCBDVCEAIDDDEAPCEA9DXCVCWCHDQAJ9RCWCPCGDXCBDVCEACDIDHDEAHDWCTCEASCPCFDZCBDTCGDGDEAXCBDGDXCSCTCQAJ9RCPCIDGDTCEABDCDQCCDSCMDEARCPCBDEAGDPCJDTCEAADTCSAJ9GA", tag: "9999SNOWLOVE"}];
+			var outputsToCheck = transfers.map(transfer => iota.utils.noChecksum(transfer.address));
+			var exptectedOutputsLength = outputsToCheck.length;
+			
+			filterSpentAddresses(outputsToCheck).then(filtered => {
+				if (filtered.length !== exptectedOutputsLength) { print("key reuse error"); return; }
+				
+				iota.api.prepareTransfers(seed, transfers, {inputs: inputs.inputs}, function(error, trytes) {
+					if (error) { print(error); return; }
+					
+					var sentToInputs = false;
+					trytes.forEach(transactionTrytes => {
+						var tx = iota.utils.transactionObject(transactionTrytes);
+						if (inputs.inputs.findIndex(input => tx.value > 0 && input.address === tx.address) !== -1) {
+							sentToInputs = true;
+						}
+					})
+					
+					if (sentToInputs) { print("Can not send to yourself!", 1); return; }
+					
+					iota.api.sendTrytes(trytes, 3, 14, (error, transfers) => { if (error) print(error, 3); else print("Transfer complete! " + transfers.value + "Iota sent", 2); });
+				});
+			}).catch(err => { print(err, 3); });
+		})
+
+
+		function filterSpentAddresses (addresses) {
+			return new Promise((resolve, reject) => {
+				iota.api.wereAddressesSpentFrom(iota.valid.isArrayOfHashes(addresses) ? addresses : addresses.map(address => address.address),
+				(err, wereSpent) => err ? reject(err) : resolve(addresses.filter((address, i) => !wereSpent[i]))
+				)
+			})
+		}
+
+		function getUnspentInputs (seed, start, threshold, inputs, cb) {
+			if (arguments.length === 4) {
+				cb = arguments[3]
+				inputs = {inputs: [], totalBalance: 0, allBalance: 0}
+			}
+			
+			iota.api.getInputs(seed, {start: start, threshold: threshold}, (err, res) => {
+				if (err) {
+					cb(err, inputs)
+					return
+				}
+				
+				inputs.allBalance += res.inputs.reduce((sum, input) => sum + input.balance, 0)
+				filterSpentAddresses(res.inputs).then(filtered => {
+					var collected = filtered.reduce((sum, input) => sum + input.balance, 0)
+					var diff = threshold - collected
+					
+					if (diff > 0) {
+						var ordered = res.inputs.sort((a, b) => a.keyIndex - b.keyIndex).reverse()
+						var end = ordered[0].keyIndex
+						getUnspentInputs(seed, end + 1, diff, {inputs: inputs.inputs.concat(filtered), totalBalance: inputs.totalBalance + collected, allBalance: inputs.allBalance}, cb)
+					} else {
+						cb(null, {inputs: inputs.inputs.concat(filtered), totalBalance: inputs.totalBalance + collected, allBalance: inputs.allBalance})
+					}
+				}).catch(err => cb(err, inputs))
+			})
+		}
+	}
+	
+	function genAddresses(seed, node, count) {
+		connection.seed = seed;
+		connection.userGenCount = count;
+		connection.provider = node;
+		if(typeof connection.accountData == "undefined") {
+			print("no account information found. retrieving automatically", 1);
+			login(seed, node, function() { genAddresses(connection.seed, connection.provider, connection.userGenCount); });
+			return;
+		}
+	
+		iota._makeRequest.provider = node;
+		print("AddressGen: " + count + " left.", 4);
+		iota.api.getNewAddress(seed, {"checksum": true}, function(error, newAddress) {
+			if (error) { print("[ErrorHandler]: could not get new address. retrying...", 1); setTimeout(function() { genAddresses(seed,node,count); }, 500); }
+		
+			newAddress = iota.utils.noChecksum(newAddress);
+
+			const transfer = [{
+				address: newAddress,
+				value: 0,
+				message: "CCWCXCGDEAPCSCSCFDTCGDGDEAKDPCGDEAVCTCBDTCFDPCHDTCSCEAIDGDXCBDVCEAXCCDHDPCSA9DXCQCSAYCGDEAIDGDXCBDVCEAPCBDEACDBD9DXCBDTCEAKDPC9D9DTCHDEAKDTCQCGDXCHDTCEAUCCDFDEAHDTCGDHDXCBDVCEADDIDFDDDCDGDTCGDEACDBD9DMDEARAGDBDCDKD9DCDJDTCJ9J9GAJ9MDCDIDEAHDTC9D9DEAADTCEAXCHDLAGDEAPC9DFDXCVCWCHDQAJ9HDTC9D9DEAADTCEASBLAADEAUCCDFDVCXCJDTCBDEAHDCDBDXCVCWCHDQAJ9QCIDHDEABDCDQCCDSCMDEARCPCBDEAGDPCJDTCEAADTCEABDCDKDQAJ9SBLAADEAWCCD9DSCXCBDVCEAIDDDEAPCEA9DXCVCWCHDQAJ9RCWCPCGDXCBDVCEACDIDHDEAHDWCTCEASCPCFDZCBDTCGDGDEAXCBDGDXCSCTCQAJ9RCPCIDGDTCEABDCDQCCDSCMDEARCPCBDEAGDPCJDTCEAADTCSAJ9GA",
+				tag: "999SNOWLOVE"
+			}];
+			iota.api.sendTransfer(seed, 3, 14, transfer, function(error, transfers) {
+				if(error)
+				{
+					print("[ErrorHandler]: could not attach new address to the tangle. retrying...", 1); setTimeout(function() { genAddresses(seed,node,count); }, 500);
+				} else {
+					count--;
+					print(newAddress + " succesfully attached to the tangle", 2);
+					
+					var index = connection.accountData.addresses.length;
+					connection.accountData.addresses[index] = newAddress;
+					account_pop('info');
+					if(count>0)
+						genAddresses(seed,node,count);
+					else {
+						print("Finished attaching all addresses", 2); login(seed, node);
+					}
+				}
+			});
+		});
+	}
+	
+	function notimp() {
+		print("This function hasn't been implemented yet.");
+	}
+
+	/*Code by knarz :: https://github.com/knarz/seedgen :: Modified by snowlove to work inline with progress bar AND NOT SPAWN 5 MILLION EVENTLISTENERS. */	
+	function initseedgen() {
+		updateSeedgenBar(0);
+		document.getElementById("divseed").classList.remove('hidden');
+		print("Starting to generate new seed");
+		
+		sjclSeedGen = new sjcl.prng(10);
+		sjclSeedGen.startCollectors();
+		sjcl.random.addEventListener("seeded", function() { print("New seed: " + genSeed()); document.getElementById("divseed").classList.add('hidden'); sjclSeedGen.stopCollectors(); sjcl.random.K.progress = {}; sjcl.random.K.seeded = {}; delete sjclSeedGen; });
+		sjcl.random.addEventListener("progress", function(p) { if(p != 1) updateSeedgenBar(p * 100); });
+	}
+	
+	function genSeed() {
+		var seed = "";
+		for(;seed.length < 81;seed += sjcl.codec.base64.fromBits(sjcl.random.randomWords(33, 10)).replace(/[^A-Z9]+/g, '')) {};
+		
+		return seed.substring(0,81);
+	}
+	
+	function updateSeedgenBar(value) {
+		$('#genprogress').attr("aria-valuenow",value);
+		$('#genprogress').attr("style","width:"+value+"%");
+	}
+	
+	function Toggle_Console() {
+		var c = document.getElementById("eventLogContent");
+		var btn = document.getElementById("eventLogContentToggle");
+		
+		if(c.classList.contains('hidden'))
+		{
+			c.classList.remove('hidden');
+			btn.innerText = "hide";
+		} else {
+			c.classList.add('hidden');
+			btn.innerText = "show";
+		}
+	}	
+window.onload = pageLoaded;
+</script>
+
+<link href="css/bootstrap.min.css" rel="stylesheet" />
+<link href="css/font-awesome.min.css" rel="stylesheet" />
+<style type="text/css">
+#errorhash, #errornode { display: inline-block; color:crimson; padding-left: 4px; }
+html, body { margin: 0;padding: 0;height: calc(100% - 60px);position: relative;width: 100%; }
+.incwrap { margin: auto;width: 80%;padding-bottom: 100px; }
+
+.hashtext { font-size:10px; }
+
+.navbar { min-height:  55px; margin-bottom: 20px; }
+main { min-width: 900px;min-height: 100%; }
+.form-control.number { width: auto; }
+.form-control[type="color"] { width : 60px; padding : 2px; display : inline-block; }
+.form-control[multiple] { height : auto; }
+.form-control { width: 75%; display: inline-block; margin-top: 5px; }
+label { padding-right: 5px; display: inline-block; width: 45px; font-weight: bold; } 
+
+.border-light { color: white; }
+pre > div > a { color: #E49647; }
+pre > div > a:hover { color:#FFF; text-decoration:none; }
+.badge { min-width:45px; }
+footer { line-height: 45px; top: 0; position: relative; width: 100%; background-color:#4e5d6c; color: #FFF; overflow:auto; text-align:center; }
+.fsStoreF { font-size: 1.2em; }
+.fb-button.form-group.field-promote-submit { padding-left: 45px; }
+.btn { width: 200px; }
+.btn-addition { margin-left: 10px; }
+.is-invalid { border-width: 2px; }
+.hidden { display: none; }
+.provider { position: absolute; padding-right: 15px; right: 0px; } /* at Ralfs request, added link to the main iota.fm site since he's so kind to let us use his nodes as default. */
+</style>
+
+</head>
+
+<body>
+	<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+	<a class="navbar-brand" href="#">IOTA Webbrowser Wallet</a>
+	<button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarColor02" aria-controls="navbarColor02" aria-expanded="false" aria-label="Toggle navigation" style="">
+		<span class="navbar-toggler-icon"></span>
+	</button>
+	
+	<div class="collapse navbar-collapse" id="navbarColor02">
+	</div>
+	</nav>
+	
+	
+	
+	<main>
+		<div class="incwrap">
+		<form id="rendered-form">
+			<div class="fb-text form-group field-promote-tx-hash-field">
+				<label for="node">Node </label><input type="text" placeholder="http://iota.nodeaddress.com:9999" value="http://nodes.iota.fm:80" class="form-control" name="node" id="node" /><div id="errornode"></div><br />
+				<label for="seed">Seed </label><input type="text" placeholder="enter your seed" value="" class="form-control" name="seed" id="seed" maxlength="81" /><br />
+				<label for="txad">Send </label><input type="text" placeholder="enter address to send to" class="form-control" value="" name="txad" id="txad" /><br />
+				<label for="txam">Amount </label><input type="text" placeholder="enter value" class="form-control" name="txam" id="txam" />
+			</div>
+			<div class="fb-button form-group field-promote-submit">
+				<button type="button" class="btn btn-primary" name="promote-submit" style="default" id="promote-submit" onClick="login(seed.value, node.value)">Retrieve info</button>
+				<button type="button" class="btn btn-primary btn-addition" name="reattach-submit" style="default" id="reattach-submit" onClick="sendIOT(seed.value, txad.value, txam.value, node.value);">Send</button>
+				<div class="btn-group" role="group" style="margin-left:10px" aria-label="Button group with nested dropdown">
+					<button type="button" class="btn btn-primary" onClick="genAddresses(seed.value, node.value, 1)">Generate Address</button>
+					<div class="btn-group" role="group">
+						<button id="btnGroupDrop1" type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" style="width:auto;" aria-haspopup="true" aria-expanded="false"></button>
+							<div class="dropdown-menu" aria-labelledby="btnGroupDrop1" x-placement="bottom-start" style="position: absolute; transform: translate3d(0px, 38px, 0px); top: 0px; left: 0px; will-change: transform;">
+								<button type="button" class="btn btn-primary" onClick="genAddresses(seed.value, node.value, 25)">Generate 25 Addresses</button>
+								<button type="button" class="btn btn-primary" onClick="genAddresses(seed.value, node.value, 50)">Generate 50 Addresses</button>
+								<button type="button" class="btn btn-primary" onClick="genAddresses(seed.value, node.value, 75)">Generate 75 Addresses</button>
+								<button type="button" class="btn btn-primary" onClick="genAddresses(seed.value, node.value, 100)">Generate 100 Addresses</button>
+							</div>
+					</div>
+				</div>
+				<button type="button" class="btn btn-primary btn-addition" name="seedgen" style="default" id="seedgen" onClick="initseedgen()">Generate Seed</button>
+			</div>
+		</form>
+		<div id="divseed" class="hidden">
+			<div style="text-align:center; font-weight:bold;">Move your mouse around to fill up the bar.</div>
+			<div class="progress" style="margin-top:25px; margin-bottom:25px;">
+				<div id="genprogress" class="progress-bar" role="progressbar" style="width: 25%;" aria-valuenow="25" aria-valuemin="0" aria-valuemax="100"></div>
+			</div>
+		</div>
+		<ul class="nav nav-tabs">
+  <li class="nav-item">
+    <a class="nav-link active" data-toggle="tab" href="#account">Account info</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" href="#history">Transfer History</a>
+  </li>
+  
+    <li class="nav-item">
+    <a class="nav-link" data-toggle="tab" href="#address">Addresses</a>
+  </li>
+</ul>
+<div id="myTabContent" class="tab-content" style="min-height:200px; overflow:auto;">
+  <div class="tab-pane fade active show" id="account">
+  <!--ACCOuntDATA-->
+<div class="card border-secondary mb-3" style="max-width: 20rem;">
+<div class="card-header">Balance: <span style="float:right;" id="accountBalance">--</span></div>
+<div class="card-header">Transactions: <span style="float:right;" id="accountTransactions">--</span></div>
+<div class="card-header">Addreses: <span style="float:right;" id="accountAddresses">--</span></div>
+<div class="card-header">Balance Addresses: <span style="float:right;" id="accountBalanceAddresses">--</span></div>
+</div>
+ <!--ENDACCOUNT-->
+  </div>
+  <div class="tab-pane fade" id="history">
+    <p>History:</p>
+	<table class="table table-hover" id="tableHistory">
+	<thead>
+    <tr>
+      <th scope="col">Hash</th>
+      <th scope="col">Amount</th>
+      <th scope="col">Type</th>
+      <th scope="col">Recieving</th>
+	  <th scope="col">Sending</th>
+    </tr>
+  </thead>
+  <tbody>
+	</tbody>
+	</table>
+  </div>
+  <div class="tab-pane fade" id="address">
+	<p>Addresses:</p>
+	<table class="table table-hover" id="tableAddresses">
+	<thead>
+    <tr>
+      <th scope="col">Address</th>
+      <th scope="col">Amount</th>
+      <th scope="col">Used</th>
+    </tr>
+  </thead>
+  <tbody>
+	</tbody>
+	</table>
+  </div>
+</div>
+		<div style="height:40px;"><button type="button" class="btn btn-primary btn-sm" style="float:right; width:auto;" id="eventLogContentToggle" onClick="Toggle_Console()">hide</button></div>
+		<pre class="panel-body text-left card border-light mb-3" style="height:500px; overflow:auto; padding:5px;" id="eventLogContent"></pre>
+
+		<p>Did this tool help you? Please donate to help create more tools like this: <span class="badge badge-light">OJVPGSRTVELYUW9IHEEBNJQCQXPMXNKFVTWW9ADLYYPDGXWQRACPGQSZCOHUVQSGWKMBNIZNXVYWULCUWDQLIGPALD</span></p>
+		</div>
+	</main>
+	<footer class="fsStoref">
+		<span class="ftext">By Snowlove - Online Wallet Proof of Concept</span><span class="provider">Default node provided by <a href="http://iota.fm">iota.fm</a></span>
+	</footer>
+</body>
+</html>
