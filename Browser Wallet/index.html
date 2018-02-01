@@ -141,7 +141,7 @@
 				}
 				});
 			} else {
-				login(connection.seed, connection.provider, function() { account_pop('history'); });
+				login(connection.seed, connection.provider, function(e, s) { if(e) print(e, 3); });
 			}
 		} else if (type == 'addresses') {
 			$("#tableAddresses").find("tr:not(:first)").remove();
@@ -170,15 +170,15 @@
 		}
 	}
 	
-	function login(seed, node, cb=null) {
+	function login(seed, node, cb) {
 		if(connection.userRetrieving) {
-			print("Attempted to retrieve account information while already in process", 1); if (cb) { cb('Unable to retrieve while already processing', null); } return;
+			return cb('Already in the middle of a connection process.', null);
 		} else if(!validatefield(seed, 'seed')) {
-			print("invalid seed", 3); return;
+			return cb('invalid seed', null);
 		} else if(!validatefield(node, 'node')) {
-			print("invalid node", 3); return;
+			return cb('invalid node', null);
 		}
-		print("Retrieving seed information from the tangle", 4);
+		print("[AccountData] Connecting to node...", 4);
 		
 		iota._makeRequest.provider = node;
 		connection.seed = seed;
@@ -189,11 +189,9 @@
 			connection.userRetrieving = false;
 			if(e) {
 				if (e.message.match(/This operations cannot be executed: The subtangle has not been updated yet/i))
-					print("[Node] Not in sync, try a different node", 3);
+					return cb("[Node] Not in sync, try a different node", null);
 				else
-					print("[Node]: Connection Refused", 3);
-					
-				return;
+					return cb("[Node]: Connection Refused", null);
 			}
 
 			connection.accountData = accountData;
@@ -206,8 +204,7 @@
 			/* populate addresses with info */
 			account_pop('addresses');
 
-			print("succesfully retrieved account information", 2);
-			if(cb) cb(null, true);
+			cb(null, '[AccountData]: Successful retrieval');
 		});
 	}
 	
@@ -215,13 +212,16 @@
 		iota._makeRequest.provider = node;
 		
 		if(typeof connection.accountData == "undefined") {
-			print("no account information found. retrieving automatically", 1);
+			//print("no account information found. retrieving automatically", 1);
 			connection.seed = seed;
 			connection.userSendingTo = addressraw;
 			connection.userSendingValue = valueraw;
 			connection.provider = node;
-			login(seed, node, function() { sendIOT(connection.seed, connection.userSendingTo, connection.userSendingValue, connection.provider); });
-			return;
+			login(seed, node, function(e, s) {
+				if(e) print(e, 3);
+				if(s) sendIOT(connection.seed, connection.userSendingTo, connection.userSendingValue, connection.provider);
+			});
+			return false;
 		}
 		
 		var address, amount, tag;
@@ -332,14 +332,10 @@
 		connection.userGenCount = count;
 		connection.provider = node;
 		if(typeof connection.accountData == "undefined") {
-			print("no account information found. retrieving automatically", 1);
+			//print("no account information found. retrieving automatically", 1);
 			login(seed, node, function(e, s) {
-				if(e) {
-					print(e, 3);
-				} else if(s) {
-					print("Sucessful callback starting regen.", 2);
-					genAddresses(connection.seed, connection.provider, connection.userGenCount);
-				}
+				if(e) print(e, 3);
+				if(s) { genAddresses(connection.seed, connection.provider, connection.userGenCount); print(s, 2); }
 			});
 			return false;
 		}
@@ -360,10 +356,10 @@
 			iota.api.sendTransfer(seed, 3, 14, transfer, function(error, transfers) {
 				if(error)
 				{
-					print("[ErrorHandler]: could not attach new address to the tangle. retrying...", 1); setTimeout(function() { genAddresses(seed,node,count); }, 500);
+					print("[ErrorHandler]: could not attach new address to the Tangle. retrying...", 1); setTimeout(function() { genAddresses(seed,node,count); }, 500);
 				} else {
 					count--;
-					print(newAddress + " succesfully attached to the tangle", 2);
+					print('[AddressGen]: ' + newAddress + ' succesfully attached to the Tangle', 2);
 					
 					var index = connection.accountData.addresses.length;
 					connection.accountData.addresses[index] = newAddress;
@@ -371,7 +367,10 @@
 					if(count>0)
 						genAddresses(seed,node,count);
 					else {
-						print("Finished attaching all addresses", 2); login(seed, node);
+						login(seed, node, function(e, s) {
+							if(e) print(e, 3);
+							if(s) print('[AddressGen]: Finished generating and attaching all addresses.', 2);
+						});
 					}
 				}
 			});
@@ -478,7 +477,7 @@ footer { line-height: 45px; top: 0; position: relative; width: 100%; background-
 				<label for="txam">Amount </label><input type="text" placeholder="enter value" class="form-control" name="txam" id="txam" />
 			</div>
 			<div class="fb-button form-group field-promote-submit">
-				<button type="button" class="btn btn-primary" name="promote-submit" style="default" id="promote-submit" onClick="login(seed.value, node.value)">Retrieve info</button>
+				<button type="button" class="btn btn-primary" name="promote-submit" style="default" id="promote-submit" onClick="login(seed.value, node.value, function(e, s){ if(e) print(e, 3) })">Retrieve info</button>
 				<button type="button" class="btn btn-primary btn-addition" name="reattach-submit" style="default" id="reattach-submit" onClick="sendIOT(seed.value, txad.value, txam.value, node.value);">Send</button>
 				<div class="btn-group" role="group" style="margin-left:10px" aria-label="Button group with nested dropdown">
 					<button type="button" class="btn btn-primary" onClick="genAddresses(seed.value, node.value, 1)">Generate Address</button>
