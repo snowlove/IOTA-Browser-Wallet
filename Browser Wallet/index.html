@@ -3,7 +3,7 @@
 	<head>
 		<meta charset="utf-8">
 		<title>IOTA Browser Wallet :: By Snowlove</title>
-		
+
 		<script type="text/javascript" src="libs/iota.min.js"></script>
 		<script type="text/javascript" src="libs/curl.min.js"></script>
 		<script type="text/javascript" src="libs/iota.extensions.js"></script>
@@ -19,6 +19,7 @@
 * LICENSE    : Creative Commons [BY][SA][NC] : https://creativecommons.org/licenses/by-nc-sa/3.0/legalcode.txt
 */
 	var iota, node, logElement, sjclSeedGen;
+	
 	var connection = {
 		userRetrieving : false,
 		userGening : false,
@@ -140,9 +141,9 @@
 					r.insertCell(4).innerHTML = "N/A";
 				}
 				});
-			} else {
-				login(connection.seed, connection.provider, function(e, s) { if(e) print(e, 3); });
-			}
+			}// else {
+				//login(connection.seed, connection.provider, function(e, s) { if(e) print(e, 3); });
+			//}
 		} else if (type == 'addresses') {
 			$("#tableAddresses").find("tr:not(:first)").remove();
 			var addressesWithBalance = {};
